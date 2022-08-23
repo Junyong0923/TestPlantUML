@@ -1,0 +1,89 @@
+@startuml
+'https://plantuml.com/sequence-diagram
+
+skinparam BoxPadding 10
+
+participant ":Ingress GW" as gw #D2E2FE
+
+box ":Personalization"
+    participant presentation as presentation #CCE4CA
+    participant application as application #CCE4CA
+    participant domain as domain #CCE4CA
+    participant infrastructure as infrastructure #CCE4CA
+end box
+
+participant ":Notify" as notify #F5C2C1
+
+autonumber
+
+activate gw
+activate presentation
+activate application
+activate domain
+activate infrastructure
+activate notify
+
+
+' 위 내용은 고정 값이며 아래 내용만 수정하도록 함
+
+title [MIMS_IPTV_001] addReservedProgram
+
+gw -> presentation : 시청 예약 추가 \nPOST /addReservedProgram
+
+presentation -> presentation : VO paramter validation
+activate presentation
+deactivate presentation
+
+presentation -> application : createReservationProgram
+application -> domain : 기존 시청 예약 정보 조회 \ngetReservationProgramCount
+
+domain -> infrastructure : 기존 시청 예약 정보 조회\ngetReservationProgramCount
+infrastructure --> domain : return
+domain --> application : return
+
+alt 시청예약 정보가 존재하는 경우
+    application --> presentation : return
+    presentation --> gw : Success Flag & Message Return
+else
+    application -> domain : 동일 시간대 예약 정보 조회\ngetReservationProgramDataTimeCount
+    domain -> infrastructure : 기존 시청 예약 정보 조회\ngetReservationProgramCount
+    infrastructure --> domain : return
+    domain --> application : return
+
+    alt 동일 시간대 예약이 존재하는 경우
+        application --> presentation : return
+        presentation --> gw : Flag 8001 & Message 기존데이터존재 Return
+    else
+        application -> domain : 시청 예약 목록 총 개수 조회\ngetReservationProgramTotalCount
+        domain -> infrastructure : 시청 예약 목록 총 개수 조회\ngetReservationProgramTotalCount
+        infrastructure --> domain : return
+        domain --> application : return
+
+        alt 시청 예약 최대 개수 초과인 경우
+            application --> presentation : return
+            presentation --> gw : Flag 5009 & Message 최대 개수를 초과 함 Return
+        else
+            application -> domain : 시청 예약 정보 추가\ncreateReservationProgram
+            domain -> infrastructure : 시청 예약 정보 추가\ncreateReservationProgram
+            infrastructure --> domain : return
+            domain --> application : return
+
+            application -> domain : registrationId 조회\nRegistrationDomainService.getRegistrationIds
+            domain -> infrastructure : registrationId 조회\nRegistrationDomainService.getRegistrationIds
+            infrastructure --> domain : return
+            domain --> application : return
+
+            application -> domain : Push 발송요청\nSendPushService.sendPush
+            domain -> infrastructure : Push 발송 innerAPI 호출\nNotifyDomainFeignClient.sendPushAgent
+            infrastructure -> notify : Multi Push Message 등록\n/notify/push/multi
+            notify --> infrastructure : return
+            infrastructure --> domain : return
+            domain --> application : return
+            application --> gw : Success Flag & Message Return
+        end alt
+
+    end alt
+
+end alt
+
+@enduml
